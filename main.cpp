@@ -1,10 +1,13 @@
 // main.cpp
 #include <iostream>
-#include <vector>
 #include <memory>
 #include <fstream>
+#include <cstdlib>
+#include <ctime>
 #include "Hero.h"
 #include "Enemy.h"
+#include "Cave.h"
+#include "CaveFactory.h"
 
 void showMainMenu();
 void playGame(std::shared_ptr<Hero> hero);
@@ -12,6 +15,7 @@ std::shared_ptr<Hero> loadHero(const std::string& filename);
 void saveHero(const std::shared_ptr<Hero>& hero, const std::string& filename);
 
 int main() {
+    std::srand(std::time(nullptr));
     std::shared_ptr<Hero> hero;
     int choice;
 
@@ -48,57 +52,46 @@ void showMainMenu() {
 }
 
 void playGame(std::shared_ptr<Hero> hero) {
-    std::vector<Enemy> enemies = {
-        Enemy("Hest", 4, 1, 100),
-        Enemy("Weak Goblin", 4, 2, 200),
-        Enemy("Strong Goblin", 8, 3, 400),
-        Enemy("Stronger Goblin", 10, 4, 500),
-        Enemy("Den stærkeste Goblin", 15, 5, 800),
-        Enemy("Abe Kongen", 30, 5, 1000),
-        Enemy("Enhjørning", 5, 8, 1500),
-        Enemy("Drage", 100, 10, 3000)
-    };
-
     bool running = true;
-    while (running) {
+    while (running && hero->isAlive()) {
         hero->printStatus();
-        std::cout << "\nVælg en fjende at kæmpe mod (eller 0 for at afslutte):\n";
-        for (size_t i = 0; i < enemies.size(); ++i) {
-            std::cout << i + 1 << ". ";
-            enemies[i].printStatus();
-        }
-        std::cout << "> ";
+
+        Cave cave = CaveFactory::generateCave(hero->getLevel());
+        std::cout << "\nUdfordring: ";
+        cave.printInfo();
+        std::cout << "Vil du udfordre denne grotte? (1 = ja, 0 = nej): ";
         int choice;
         std::cin >> choice;
-
-        if (choice == 0) {
+        if (choice != 1) {
             running = false;
             break;
         }
 
-        if (choice < 1 || choice > static_cast<int>(enemies.size())) {
-            std::cout << "Ugyldigt valg.\n";
-            continue;
-        }
+        for (Enemy& enemy : cave.getEnemies()) {
+            std::cout << "\nDu møder: ";
+            enemy.printStatus();
 
-        Enemy enemy = enemies[choice - 1];
-        std::cout << "\nKampen mod " << enemy.getName() << " starter!\n";
+            while (hero->isAlive() && enemy.isAlive()) {
+                enemy.takeDamage(hero->getStrength());
+                std::cout << "Du gør " << hero->getStrength() << " skade på fjenden.\n";
+                if (!enemy.isAlive()) break;
 
-        while (hero->isAlive() && enemy.isAlive()) {
-            enemy.takeDamage(hero->getStrength());
-            std::cout << "Du gør " << hero->getStrength() << " skade på fjenden.\n";
-            if (!enemy.isAlive()) break;
+                hero->takeDamage(enemy.getStrength());
+                std::cout << "Fjenden gør " << enemy.getStrength() << " skade på dig.\n";
+            }
 
-            hero->takeDamage(enemy.getStrength());
-            std::cout << "Fjenden gør " << enemy.getStrength() << " skade på dig.\n";
+            if (!hero->isAlive()) {
+                std::cout << "Du døde i grotten...\n";
+                running = false;
+                break;
+            } else {
+                std::cout << "Du besejrede " << enemy.getName() << "!\n";
+                hero->gainXP(enemy.getXP());
+            }
         }
 
         if (hero->isAlive()) {
-            std::cout << "Du besejrede " << enemy.getName() << "!\n";
-            hero->gainXP(enemy.getXP());
-        } else {
-            std::cout << "Du døde. Spillet slutter.\n";
-            running = false;
+            std::cout << "\nDu har gennemført grotten og tjent " << cave.getGoldReward() << " guld!\n";
         }
     }
 }
