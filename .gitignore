@@ -1,0 +1,39 @@
+# Byg filer og mapper
+build/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+*.cmake
+cmake_install.cmake
+
+# Executables
+*.out
+*.exe
+${PROJECT_NAME} # Hvis din executable har samme navn som projektet
+
+# Database filer
+# *.db
+
+# Object files
+*.o
+*.obj
+
+# Debugging and profiling
+*.gch
+*.pdb
+*.ilk
+*.log
+
+# Backup files
+*~
+*.bak
+*.tmp
+
+
+# Qt specific files
+*.pro.user
+*.qmlc
+*.qrc
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
