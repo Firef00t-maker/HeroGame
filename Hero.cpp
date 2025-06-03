@@ -1,19 +1,28 @@
 // Hero.cpp
 #include "Hero.h"
 #include <iostream>
+#include <utility>
 
 Hero::Hero(std::string name)
-    : name(name), level(1), xp(0), hp(10), strength(2) {}
+    : name(std::move(name))
+    , level(1)
+    , xp(0)
+    , hp(30)
+    , strength(5)
+    , gold(0)
+    , weapon(nullptr)
+{}
 
-Hero::Hero(std::string name, int level, int xp, int hp, int strength)
-    : name(name), level(level), xp(xp), hp(hp), strength(strength) {}
+Hero::Hero(std::string name, int level, int xp, int hp, int strength, int gold)
+    : name(std::move(name)), level(level), xp(xp), hp(hp), strength(strength), gold(gold), weapon(nullptr) {}
 
 void Hero::levelUp() {
     level++;
-    xp = 0;
-    hp += 2;
-    strength += 1;
-    std::cout << "Level up! Du er nu level " << level << "!\n";
+    strength += 2;
+    hp = 30 + (level - 1) * 2;
+    std::cout << "Du er steget til niveau " << level
+              << "! Styrke: " << strength
+              << ", HP: " << hp << "\n";
 }
 
 void Hero::takeDamage(int dmg) {
@@ -23,9 +32,11 @@ void Hero::takeDamage(int dmg) {
 
 void Hero::gainXP(int amount) {
     xp += amount;
-    while (xp >= level * 1000) {
-        xp -= level * 1000;
+    int threshold = level * 10;
+    while (xp >= threshold) {
+        xp -= threshold;
         levelUp();
+        threshold = level * 10;
     }
 }
 
@@ -34,8 +45,41 @@ bool Hero::isAlive() const {
 }
 
 void Hero::printStatus() const {
-    std::cout << name << " - Level: " << level << ", XP: " << xp
-              << ", HP: " << hp << ", Styrke: " << strength << "\n";
+    std::cout << "\n[Heltestatus]\n";
+    std::cout << "Navn: " << name << "\n";
+    std::cout << "Niveau: " << level << ", XP: " << xp << "\n";
+    std::cout << "HP: " << hp << ", Styrke: " << strength << "\n";
+    std::cout << "Guld: " << gold << "\n";
+    if (weapon) {
+        weapon->printStatus();
+    } else {
+        std::cout << "Våben: Ubevæbnet\n";
+    }
+}
+
+void Hero::equipWeapon(std::shared_ptr<Weapon> newWeapon) {
+    weapon = std::move(newWeapon);
+}
+
+std::string Hero::getWeaponName() const {
+    return weapon ? weapon->getName() : "Ubevæbnet";
+}
+
+int Hero::attack(Enemy& enemy) {
+    int damage = weapon ? weapon->calculateDamage(strength) : strength;
+    enemy.takeDamage(damage);
+    if (weapon) {
+        weapon->degrade();
+    }
+    return damage;
+}
+
+void Hero::healToFull() {
+    hp = 30 + (level - 1) * 2;
+}
+
+void Hero::addGold(int amount) {
+    gold += amount;
 }
 
 std::string Hero::getName() const { return name; }
@@ -43,3 +87,4 @@ int Hero::getLevel() const { return level; }
 int Hero::getXP() const { return xp; }
 int Hero::getHP() const { return hp; }
 int Hero::getStrength() const { return strength; }
+int Hero::getGold() const { return gold; }

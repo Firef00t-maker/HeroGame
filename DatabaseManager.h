@@ -5,13 +5,19 @@
 
 class DatabaseManager {
 private:
-    sqlite3* db;
+    // Statisk peger til SQLite-database
+    static sqlite3* db;
+
+    // Hjælpefunktion til at tjekke SQLite-fejl
+    static void checkSQLiteError(int rc, const char* errMsg);
 
 public:
-    DatabaseManager();
-    ~DatabaseManager();
+    // Åbner (eller opretter) databasen og tabellen kills
+    static void init();
 
-    void init();
-    void logKill(const std::string& heroName, const std::string& weaponName);
-    void showStats();
+    // Indsætter én “kill” (heroName, weaponName) i kills-tabellen
+    static void logKill(const std::string& heroName, const std::string& weaponName);
+
+    // Printer de fire SQL-rapporter til konsollen
+    static void showStats();
 };

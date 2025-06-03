@@ -1,131 +1,177 @@
 // DatabaseManager.cpp
-#include "GameManager.h"
-#include "CaveFactory.h"
-#include "WeaponFactory.h"
 #include "DatabaseManager.h"
 #include <iostream>
-#include <fstream>
-#include <cstdlib>
-#include <ctime>
+#include <vector>
+#include <string>
 
-void GameManager::run() {
-    std::srand(std::time(nullptr));
-    DatabaseManager::init();
+// Initialiser statisk db-pointer
+sqlite3* DatabaseManager::db = nullptr;
 
-    bool running = true;
-    while (running) {
-        showMainMenu();
-        int choice;
-        std::cin >> choice;
-        std::cin.ignore();
-
-        switch (choice) {
-            case 1: startNewHero(); playAdventure(); break;
-            case 2: loadHero(); playAdventure(); break;
-            case 3: DatabaseManager::showStats(); break;
-            case 4: running = false; break;
-            default: std::cout << "Ugyldigt valg.\n"; break;
-        }
+void DatabaseManager::checkSQLiteError(int rc, const char* errMsg) {
+    if (rc != SQLITE_OK && rc != SQLITE_DONE && rc != SQLITE_ROW) {
+        std::cerr << "SQLite Error: "
+                  << (errMsg ? errMsg : sqlite3_errmsg(db))
+                  << "\n";
     }
 }
 
-void GameManager::showMainMenu() {
-    std::cout << "\n--- HOVEDMENU ---\n";
-    std::cout << "1. Ny helt\n";
-    std::cout << "2. Load helt\n";
-    std::cout << "3. Vis statistik\n";
-    std::cout << "4. Afslut\n";
-    std::cout << "> ";
-}
-
-void GameManager::startNewHero() {
-    std::string name;
-    std::cout << "Indtast navn: ";
-    std::getline(std::cin, name);
-    hero = std::make_shared<Hero>(name);
-}
-
-void GameManager::loadHero() {
-    std::ifstream file("hero_save.txt");
-    std::string name, weaponName;
-    int level, xp, hp, strength, gold;
-    if (!(file >> name >> level >> xp >> hp >> strength >> gold >> weaponName)) {
-        std::cout << "Kunne ikke finde gemt helt. Opretter ny.\n";
-        startNewHero();
+void DatabaseManager::init() {
+    // Åbn eller opret databasen “game_stats.db”
+    int rc = sqlite3_open("game_stats.db", &db);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Kunne ikke åbne database: " << sqlite3_errmsg(db) << "\n";
         return;
     }
-    hero = std::make_shared<Hero>(name, level, xp, hp, strength, gold);
-    hero->equipWeapon(std::make_shared<Weapon>(weaponName));
-    std::cout << "Helt indlæst: " << name << "\n";
-}
 
-void GameManager::saveHero() {
-    std::ofstream file("hero_save.txt");
-    file << hero->getName() << " "
-         << hero->getLevel() << " "
-         << hero->getXP() << " "
-         << hero->getHP() << " "
-         << hero->getStrength() << " "
-         << hero->getGold() << " "
-         << hero->getWeaponName();
-}
-
-void GameManager::playAdventure() {
-    bool inGame = true;
-
-    while (inGame && hero->isAlive()) {
-        hero->printStatus();
-        Cave cave = CaveFactory::generateCave(hero->getLevel());
-        std::cout << "\nDu har fundet en ny grotte: ";
-        cave.printInfo();
-
-        std::cout << "Vil du udfordre denne grotte? (1 = ja, 0 = nej): ";
-        int choice;
-        std::cin >> choice;
-        if (choice != 1) break;
-
-        for (Enemy& enemy : cave.getEnemies()) {
-            std::cout << "\nDu møder: ";
-            enemy.printStatus();
-
-            while (hero->isAlive() && enemy.isAlive()) {
-                int damage = hero->attack(enemy);
-                std::cout << "Du gør " << damage << " skade.\n";
-
-                if (!enemy.isAlive()) break;
-
-                hero->takeDamage(enemy.getStrength());
-                std::cout << "Fjenden gør " << enemy.getStrength() << " skade.\n";
-            }
-
-            if (!hero->isAlive()) {
-                std::cout << "Du døde i grotten...\n";
-                break;
-            } else {
-                std::cout << "Du besejrede " << enemy.getName() << " og fik XP!\n";
-                hero->gainXP(enemy.getXP());
-
-                // Log kill til databasen
-                DatabaseManager::logKill(hero->getName(), hero->getWeaponName());
-            }
-        }
-
-        if (hero->isAlive()) {
-            std::cout << "\nDu gennemførte grotten og modtog " << cave.getGoldReward() << " guld!\n";
-            hero->addGold(cave.getGoldReward());
-
-            // Giv nyt våben
-            auto newWeapon = WeaponFactory::generateWeapon(hero->getLevel());
-            hero->equipWeapon(newWeapon);
-            std::cout << "Du har fået et nyt våben: ";
-            newWeapon->print();
-        }
-
-        // Helbred helt
-        hero->healToFull();
-
-        saveHero();
-        std::cout << "Tilbage til hovedmenu...\n";
-        inGame = false;
+    // Opret tabel kills, hvis den ikke eksisterer
+    const char* sqlCreate =
+        "CREATE TABLE IF NOT EXISTS kills ("
+        "    id      INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "    hero    TEXT NOT NULL,"
+        "    weapon  TEXT NOT NULL"
+        ");";
+    char* errMsg = nullptr;
+    rc = sqlite3_exec(db, sqlCreate, nullptr, nullptr, &errMsg);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Fejl ved oprettelse af tabel: " << errMsg << "\n";
+        sqlite3_free(errMsg);
     }
 }
+
+void DatabaseManager::logKill(const std::string& heroName, const std::string& weaponName) {
+    if (!db) {
+        std::cerr << "Database ikke initialiseret. Kald DatabaseManager::init() først.\n";
+        return;
+    }
+
+    const char* sqlInsert = "INSERT INTO kills (hero, weapon) VALUES (?, ?);";
+    sqlite3_stmt* stmt = nullptr;
+    int rc = sqlite3_prepare_v2(db, sqlInsert, -1, &stmt, nullptr);
+    if (rc != SQLITE_OK) {
+        std::cerr << "Fejl ved sqlite3_prepare_v2 (INSERT): " << sqlite3_errmsg(db) << "\n";
+        return;
+    }
+
+    sqlite3_bind_text(stmt, 1, heroName.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, weaponName.c_str(), -1, SQLITE_TRANSIENT);
+
+    rc = sqlite3_step(stmt);
+    if (rc != SQLITE_DONE) {
+        std::cerr << "Fejl ved sqlite3_step (INSERT): " << sqlite3_errmsg(db) << "\n";
+    }
+    sqlite3_finalize(stmt);
+}
+
+void DatabaseManager::showStats() {
+    if (!db) {
+        std::cerr << "Database ikke initialiseret. Kald DatabaseManager::init() først.\n";
+        return;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    int rc;
+
+    std::cout << "\n=== STATISTIK: ALLE HELTE (A-Å) ===\n";
+    {
+        const char* sql1 = "SELECT DISTINCT hero FROM kills ORDER BY hero ASC;";
+        rc = sqlite3_prepare_v2(db, sql1, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK) {
+            while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                const unsigned char* hero = sqlite3_column_text(stmt, 0);
+                std::cout << "- " << hero << "\n";
+            }
+        } else {
+            std::cerr << "Fejl ved sqlite3_prepare_v2 (sql1): " << sqlite3_errmsg(db) << "\n";
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    std::cout << "\n=== ANTAL KILLS PR. HELT ===\n";
+    {
+        const char* sql2 = "SELECT hero, COUNT(*) AS kill_count FROM kills GROUP BY hero ORDER BY kill_count DESC;";
+        rc = sqlite3_prepare_v2(db, sql2, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK) {
+            while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                const unsigned char* hero = sqlite3_column_text(stmt, 0);
+                int count = sqlite3_column_int(stmt, 1);
+                std::cout << hero << " har besejret " << count << " monstre.\n";
+            }
+        } else {
+            std::cerr << "Fejl ved sqlite3_prepare_v2 (sql2): " << sqlite3_errmsg(db) << "\n";
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    std::cout << "\n=== VÅBENSTATISTIK FOR ÉN HELT ===\n";
+    std::cout << "Indtast navnet på den helt, du vil se våben‐statistik for: ";
+    std::string valgtHero;
+    std::getline(std::cin, valgtHero);
+    if (valgtHero.empty()) {
+        std::getline(std::cin, valgtHero); // hvis newline lå i buffer
+    }
+
+    {
+        const char* sql3 = 
+            "SELECT weapon, COUNT(*) AS kill_count "
+            "FROM kills WHERE hero = ? "
+            "GROUP BY weapon ORDER BY kill_count DESC;";
+        rc = sqlite3_prepare_v2(db, sql3, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, valgtHero.c_str(), -1, SQLITE_TRANSIENT);
+            bool nogenRækker = false;
+            while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                nogenRækker = true;
+                const unsigned char* weapon = sqlite3_column_text(stmt, 0);
+                int count = sqlite3_column_int(stmt, 1);
+                std::cout << "- Våben: " << weapon << " → " << count << " kills\n";
+            }
+            if (!nogenRækker) {
+                std::cout << "Ingen kills fundet for helten '" << valgtHero << "'.\n";
+            }
+        } else {
+            std::cerr << "Fejl ved sqlite3_prepare_v2 (sql3): " << sqlite3_errmsg(db) << "\n";
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    std::cout << "\n=== TOP HELT PR. VÅBEN ===\n";
+    // Hent alle unikke våben
+    std::vector<std::string> alleVaaben;
+    {
+        const char* sqlDistinctW = "SELECT DISTINCT weapon FROM kills;";
+        rc = sqlite3_prepare_v2(db, sqlDistinctW, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK) {
+            while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                const unsigned char* weapon = sqlite3_column_text(stmt, 0);
+                alleVaaben.push_back(reinterpret_cast<const char*>(weapon));
+            }
+        } else {
+            std::cerr << "Fejl ved sqlite3_prepare_v2 (sqlDistinctW): " << sqlite3_errmsg(db) << "\n";
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    // For hvert våben, find top helt
+    for (const auto& w : alleVaaben) {
+        const char* sql4 = 
+            "SELECT hero, COUNT(*) AS kill_count "
+            "FROM kills WHERE weapon = ? "
+            "GROUP BY hero ORDER BY kill_count DESC LIMIT 1;";
+        rc = sqlite3_prepare_v2(db, sql4, -1, &stmt, nullptr);
+        if (rc == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, w.c_str(), -1, SQLITE_TRANSIENT);
+            if ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+                const unsigned char* topHero = sqlite3_column_text(stmt, 0);
+                int count = sqlite3_column_int(stmt, 1);
+                std::cout << "- Våben: " << w << " → Top helt: " << topHero
+                          << " med " << count << " kills\n";
+            }
+        } else {
+            std::cerr << "Fejl ved sqlite3_prepare_v2 (sql4): " << sqlite3_errmsg(db) << "\n";
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    std::cout << "\n=== SLUT PÅ STATISTIK ===\n\n";
+}
+

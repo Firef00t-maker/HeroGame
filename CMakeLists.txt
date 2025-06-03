@@ -1,20 +1,22 @@
 cmake_minimum_required(VERSION 3.5)
-
-project(untitled LANGUAGES CXX)
+project(HeroGame)
 
 set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(untitled main.cpp
-    Hero.cpp
-    Enemy.cpp
-    EnemyFactory.cpp
+find_package(SQLite3 REQUIRED)
+include_directories(${SQLite3_INCLUDE_DIRS})
+
+add_executable(HeroGame
+    main.cpp
+    GameManager.cpp
+    DatabaseManager.cpp
     Cave.cpp
     CaveFactory.cpp
+    Enemy.cpp
+    EnemyFactory.cpp
+    Hero.cpp
+    Weapon.cpp
+    WeaponFactory.cpp
 )
 
-include(GNUInstallDirs)
-install(TARGETS untitled
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
+target_link_libraries(HeroGame PRIVATE ${SQLite3_LIBRARIES})
